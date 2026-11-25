@@ -71,8 +71,25 @@
     outline: none;
     background: transparent;
     color: transparent;
-    caret-color: var(--fg);
+    caret-color: transparent; /* the visible caret is #caret in the mirror */
   }
+
+  /* Drawn caret: shorter than the 1.8em line box the native caret fills.
+     #caret is recreated on every render, so the blink restarts while typing. */
+  #caret { position: relative; }
+  #caret::after {
+    content: "";
+    position: absolute;
+    left: -1px;
+    top: 50%;
+    width: 2px;
+    height: 1.2em;
+    transform: translateY(-50%);
+    background: var(--fg);
+    animation: blink 1.06s steps(1) 0.5s infinite;
+  }
+  body:not(.edfocus) #caret::after, body.hassel #caret::after { display: none; }
+  @keyframes blink { 50% { opacity: 0; } }
   #ed::selection { background: var(--sel); color: transparent; }
 
   /* ---------- rendered markdown ---------- */
@@ -293,6 +310,7 @@
     if (curEl && curEl !== el && curEl.isConnected) { curEl.textContent = curEl._t; curEl.classList.add('dim'); }
     const [s, e] = sentenceRange(line, col);
     el.classList.remove('dim');
+    document.body.classList.toggle('hassel', ed.selectionStart !== ed.selectionEnd);
     el.innerHTML =
       '<span class="dim">' + esc(line.slice(0, s)) + '</span>' +
       '<span class="cur">' + esc(line.slice(s, col)) + '<span id="caret"></span>' + esc(line.slice(col, e)) + '</span>' +
@@ -590,6 +608,9 @@
     if (!e.metaKey && !e.ctrlKey) document.body.classList.add('typing');
   });
   ed.addEventListener('input', () => { dirty = true; render(); scheduleSave(); });
+  ed.addEventListener('focus', () => document.body.classList.add('edfocus'));
+  ed.addEventListener('blur', () => document.body.classList.remove('edfocus'));
+  if (document.activeElement === ed) document.body.classList.add('edfocus');
   ed.addEventListener('scroll', () => { ed.scrollTop = 0; ed.scrollLeft = 0; });
   document.addEventListener('selectionchange', () => { if (document.activeElement === ed) schedule(); });
   document.addEventListener('mousemove', () => document.body.classList.remove('typing'));
