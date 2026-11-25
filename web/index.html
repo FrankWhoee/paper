@@ -82,24 +82,24 @@
     outline: none;
     background: transparent;
     color: transparent;
-    caret-color: transparent; /* the visible caret is #caret in the mirror */
+    caret-color: transparent; /* the visible caret is #cursor, see placeCursor() */
   }
 
   /* Drawn caret: shorter than the 1.8em line box the native caret fills.
-     #caret is recreated on every render, so the blink restarts while typing. */
-  #caret { position: relative; }
-  #caret::after {
-    content: "";
+     placeCursor() positions it by measuring the text around the caret. */
+  #cursor {
     position: absolute;
-    left: -1px;
-    top: 50%;
+    left: 0;
+    top: 0;
     width: 2px;
     height: 1.2em;
-    transform: translateY(-50%);
+    margin: -0.6em 0 0 -1px;
     background: var(--fg);
+    pointer-events: none;
+    will-change: transform;
     animation: blink 1.06s steps(1) 0.5s infinite;
   }
-  body:not(.edfocus) #caret::after, body.hassel #caret::after { display: none; }
+  body:not(.edfocus) #cursor, body.hassel #cursor { visibility: hidden; }
   @keyframes blink { 50% { opacity: 0; } }
   #ed::selection { background: var(--sel); color: transparent; }
 
@@ -189,6 +189,7 @@
     <div id="stack">
       <div id="mirror" aria-hidden="true"></div>
       <textarea id="ed" spellcheck="false" autocomplete="off" aria-label="Writing area"></textarea>
+      <div id="cursor" aria-hidden="true"></div>
     </div>
   </main>
   <article id="preview" class="page" hidden></article>
@@ -348,17 +349,58 @@
     document.body.classList.toggle('hassel', ed.selectionStart !== ed.selectionEnd);
     el.innerHTML =
       '<span class="dim">' + esc(line.slice(0, s)) + '</span>' +
-      '<span class="cur">' + esc(line.slice(s, col)) + '<span id="caret"></span>' + esc(line.slice(col, e)) + '</span>' +
-      '<span class="dim">' + esc(line.slice(e)) + '</span>​';
+      '<span class="cur">' + esc(line.slice(s, e)) + '</span>' +
+      '<span class="dim">' + esc(line.slice(e)) + '</span>' +
+      (line ? '' : '\u200b'); // an empty line still needs its height
     curEl = el;
+    placeCursor(el, line, col);
     ed.scrollTop = 0;
     if (scroll) keepCaretInView();
   }
 
+  // Draw the caret by measuring the text around it (no marker element in the
+  // mirror: an empty inline span at a soft-wrap point adds a phantom line in
+  // WebKit). After a space at a soft-wrap point the next character goes at the
+  // start of the next visual line, so the caret is drawn there.
+  function charRect(el, i) {
+    const walk = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    let n;
+    while ((n = walk.nextNode()) && i >= n.length) i -= n.length;
+    if (!n) return null;
+    const range = document.createRange();
+    range.setStart(n, i); range.setEnd(n, i + 1);
+    const rects = range.getClientRects();
+    return rects.length ? rects[rects.length - 1] : null;
+  }
+
+  function placeCursor(el, line, col) {
+    const cursor = $('cursor');
+    const mr = mirror.getBoundingClientRect(), er = el.getBoundingClientRect();
+    const lh = parseFloat(getComputedStyle(mirror).lineHeight);
+    const row = r => Math.max(0, Math.floor((r.top + r.height / 2 - er.top) / lh));
+    let x = 0, n = 0, r;
+    if (col < line.length && (r = charRect(el, col))) {
+      x = r.left - mr.left; n = row(r);             // just before the next character
+    } else if (col > 0 && (r = charRect(el, col - 1))) {
+      x = r.right - mr.left; n = row(r);            // end of the line
+      if (WS.test(line[col - 1]) && r.right >= mr.right - 0.5) {
+        // a hanging space: at the end of the document the next character
+        // starts a new line; otherwise stay on this line, since the next
+        // visual line belongs to the paragraph below
+        if (el === els[els.length - 1]) { x = 0; n++; } else x = mr.width;
+      }
+    }
+    const y = er.top - mr.top + n * lh + lh / 2;
+    cursor.style.transform = `translate(${x}px, ${y}px)`;
+    // restart the blink so the caret stays solid while typing
+    cursor.style.animation = 'none';
+    void cursor.offsetWidth;
+    cursor.style.animation = '';
+  }
+
   function keepCaretInView(smooth = true) {
-    const caret = $('caret');
-    if (!caret || document.activeElement !== ed) return;
-    const r = caret.getBoundingClientRect(), vh = window.innerHeight;
+    if (document.activeElement !== ed) return;
+    const r = $('cursor').getBoundingClientRect(), vh = window.innerHeight;
     if (focusMode) {
       const delta = r.top - vh * 0.42;
       if (Math.abs(delta) > 4) window.scrollBy({ top: delta, behavior: smooth ? 'smooth' : 'auto' });
@@ -650,6 +692,7 @@
   document.addEventListener('selectionchange', () => { if (document.activeElement === ed) schedule(); });
   document.addEventListener('mousemove', () => document.body.classList.remove('typing'));
   window.addEventListener('resize', () => { if (view === 'edit') render(false); });
+  document.fonts.ready.then(() => { if (view === 'edit') render(false); });
   window.addEventListener('beforeunload', () => { flush(); });
   window.addEventListener('blur', () => { flush(); });
 
