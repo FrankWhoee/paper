@@ -159,6 +159,21 @@
     white-space: pre;
   }
   #toast.show { opacity: 1; }
+
+  /* Scroll position: a faint hairline on the right edge, shown only while scrolling. */
+  #rail {
+    position: fixed;
+    top: 0;
+    right: 3px;
+    width: 2px;
+    border-radius: 1px;
+    background: var(--faint);
+    opacity: 0;
+    transition: opacity 0.8s ease;
+    pointer-events: none;
+    will-change: transform;
+  }
+  #rail.show { opacity: 1; transition-duration: 0.15s; }
 </style>
 </head>
 <body>
@@ -174,6 +189,7 @@
     <ul id="list"></ul>
   </section>
   <div id="toast"></div>
+  <div id="rail" aria-hidden="true"></div>
 
 <script>
 (() => {
@@ -620,6 +636,23 @@
   window.addEventListener('resize', () => { if (view === 'edit') render(false); });
   window.addEventListener('beforeunload', () => { flush(); });
   window.addEventListener('blur', () => { flush(); });
+
+  // Scroll hairline. Ignores scrolls caused by typing (typewriter scrolling,
+  // keeping the caret in view) so it never flickers while writing.
+  const rail = $('rail');
+  let railTimer = 0, lastInput = 0;
+  ed.addEventListener('input', () => { lastInput = performance.now(); });
+  window.addEventListener('scroll', () => {
+    if (performance.now() - lastInput < 700) return;
+    const vh = window.innerHeight, sh = document.documentElement.scrollHeight;
+    if (sh <= vh + 1) return;
+    const h = Math.max(24, vh * vh / sh);
+    rail.style.height = h + 'px';
+    rail.style.transform = `translateY(${(window.scrollY / (sh - vh)) * (vh - h)}px)`;
+    rail.classList.add('show');
+    clearTimeout(railTimer);
+    railTimer = setTimeout(() => rail.classList.remove('show'), 900);
+  }, { passive: true });
 
   // clicking the empty margins returns to the text
   document.addEventListener('mousedown', e => {
