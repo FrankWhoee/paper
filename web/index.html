@@ -251,6 +251,14 @@
   // ================= sentence detection =================
   const TERM = /[.!?…]/, CLOSE = /["'”’)\]»*_]/, WS = /\s/;
   function sentenceRange(t, pos) {
+    // Just finished a sentence and the next hasn't started (only whitespace
+    // from just before the caret to the end of the line): keep the finished
+    // sentence lit.
+    if (pos > 0 && WS.test(t[pos - 1]) && !/\S/.test(t.slice(pos))) {
+      let p = pos;
+      while (p > 0 && WS.test(t[p - 1])) p--;
+      if (p > 0) return [sentenceRange(t, p)[0], t.length];
+    }
     let s = pos;
     while (s > 0) {
       const c = t[s - 1];
