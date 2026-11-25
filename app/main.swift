@@ -227,8 +227,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
 
 // MARK: - Entry point
 
-let app = NSApplication.shared
-let delegate = AppDelegate()
-app.delegate = delegate
-app.setActivationPolicy(.regular)
-app.run()
+// Top-level code runs on the main thread.
+MainActor.assumeIsolated {
+    let app = NSApplication.shared
+    let delegate = AppDelegate()
+    app.delegate = delegate
+    app.setActivationPolicy(.regular)
+    app.run()
+}
