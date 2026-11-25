@@ -12,7 +12,7 @@
     --faint: rgba(38, 37, 31, 0.38);
     --sel: rgba(120, 140, 170, 0.22);
     --accent: #2f6bd8;
-    --font: ui-monospace, "SF Mono", "JetBrains Mono", "IBM Plex Mono", Menlo, Consolas, "Liberation Mono", monospace;
+    --font: "Paper Dash", ui-monospace, "SF Mono", "JetBrains Mono", "IBM Plex Mono", Menlo, Consolas, "Liberation Mono", monospace;
   }
   @media (prefers-color-scheme: dark) {
     :root {
@@ -23,6 +23,14 @@
       --sel: rgba(140, 160, 200, 0.25);
       --accent: #7aa7ff;
     }
+  }
+  /* A monospace em dash is squeezed into one cell and reads as a hyphen.
+     Take just U+2014 from a proportional font so it is a full em wide.
+     Textarea and mirror share this stack, so the caret stays aligned. */
+  @font-face {
+    font-family: "Paper Dash";
+    src: local("Helvetica Neue"), local("HelveticaNeue"), local("Helvetica"), local("Arial");
+    unicode-range: U+2014;
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; background: var(--bg); color: var(--fg); }
