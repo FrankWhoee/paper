@@ -304,10 +304,10 @@
   // ================= editor rendering (incremental, per line) =================
   // The textarea is transparent; a mirror underneath draws the text, one div per line.
   // On each edit only the lines that changed are rebuilt, so long documents stay fast.
-  let lines = [], els = [], curEl = null, dirty = true;
+  let lines = [], els = [], lit = [], dirty = true;
   let focusMode = false;
 
-  function resetMirror() { mirror.textContent = ''; lines = []; els = []; curEl = null; dirty = true; }
+  function resetMirror() { mirror.textContent = ''; lines = []; els = []; lit = []; dirty = true; }
 
   function mkLine(text) {
     const d = document.createElement('div');
@@ -335,25 +335,63 @@
     lines = nl;
   }
 
+  // [line index, offset of that line's start] for a position in the text
+  function lineOf(t, pos) {
+    let li = 0, start = 0;
+    for (let i = t.indexOf('\n'); i !== -1 && i < pos; i = t.indexOf('\n', i + 1)) { li++; start = i + 1; }
+    return [li, start];
+  }
+
+  // Sentence bounds for a selection's ends: widen to whole sentences, but
+  // don't pull in a sentence the selection only touches with whitespace.
+  function selStart(line, c) {
+    let p = c;
+    while (p < line.length && WS.test(line[p])) p++;
+    return p === line.length ? c : Math.min(c, sentenceRange(line, p)[0]);
+  }
+  function selEnd(line, c, min) {
+    let p = c;
+    while (p > min && WS.test(line[p - 1])) p--;
+    return p === min ? c : Math.max(c, sentenceRange(line, p)[1]);
+  }
+
+  // Lights the sentence at the caret, or every sentence a selection touches.
+  // Only lit lines are split into spans; a line lit end to end is plain text.
   function render(scroll = true) {
     if (dirty) { syncLines(); dirty = false; }
-    const t = ed.value;
-    const pos = ed.selectionDirection === 'backward' ? ed.selectionStart : ed.selectionEnd;
-    let li = 0, lineStart = 0;
-    for (let i = t.indexOf('\n'); i !== -1 && i < pos; i = t.indexOf('\n', i + 1)) { li++; lineStart = i + 1; }
-    const el = els[li], line = lines[li], col = pos - lineStart;
-    if (!el) return;
-    if (curEl && curEl !== el && curEl.isConnected) { curEl.textContent = curEl._t; curEl.classList.add('dim'); }
-    const [s, e] = sentenceRange(line, col);
-    el.classList.remove('dim');
-    document.body.classList.toggle('hassel', ed.selectionStart !== ed.selectionEnd);
-    el.innerHTML =
-      '<span class="dim">' + esc(line.slice(0, s)) + '</span>' +
-      '<span class="cur">' + esc(line.slice(s, e)) + '</span>' +
-      '<span class="dim">' + esc(line.slice(e)) + '</span>' +
-      (line ? '' : '\u200b'); // an empty line still needs its height
-    curEl = el;
-    placeCursor(el, line, col);
+    const t = ed.value, a = ed.selectionStart, b = ed.selectionEnd;
+    const [la, sa] = lineOf(t, a);
+    const [lb, sb] = a === b ? [la, sa] : lineOf(t, b);
+    if (!els[la] || !els[lb]) return;
+    const next = new Map();
+    if (a === b) next.set(els[la], sentenceRange(lines[la], a - sa));
+    else for (let i = la; i <= lb; i++) {
+      const line = lines[i];
+      next.set(els[i], [
+        i === la ? selStart(line, a - sa) : 0,
+        i === lb ? selEnd(line, b - sb, i === la ? a - sa : 0) : line.length,
+      ]);
+    }
+    for (const el of lit) {
+      if (!next.has(el) && el.isConnected) { el.textContent = el._t; el.classList.add('dim'); el._lit = null; }
+    }
+    for (const [el, [s, e]] of next) {
+      const key = s + ',' + e;
+      if (el._lit === key) continue;
+      el._lit = key;
+      el.classList.remove('dim');
+      const line = el._t;
+      if (s === 0 && e >= line.length) el.textContent = line;
+      else el.innerHTML =
+        '<span class="dim">' + esc(line.slice(0, s)) + '</span>' +
+        '<span class="cur">' + esc(line.slice(s, e)) + '</span>' +
+        '<span class="dim">' + esc(line.slice(e)) + '</span>';
+    }
+    lit = [...next.keys()];
+    document.body.classList.toggle('hassel', a !== b);
+    const back = ed.selectionDirection === 'backward';
+    const li = back ? la : lb;
+    placeCursor(els[li], lines[li], (back ? a : b) - (back ? sa : sb));
     ed.scrollTop = 0;
     if (scroll) keepCaretInView();
   }
