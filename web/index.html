@@ -36,9 +36,10 @@
   [hidden] { display: none !important; }
 
   .page {
-    max-width: 66ch;
+    width: 50vw;
+    min-width: min(36ch, calc(100vw - 48px)); /* keep a usable column in narrow windows */
     margin: 0 auto;
-    padding: 22vh 6vw 55vh;
+    padding: 22vh 0 55vh;
   }
   body.focus #wrap { padding-top: 42vh; }
 
