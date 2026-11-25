@@ -1,0 +1,621 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Paper</title>
+<style>
+  :root {
+    --bg: #fbfaf7;
+    --fg: #26251f;
+    --dim: rgba(38, 37, 31, 0.17);
+    --faint: rgba(38, 37, 31, 0.38);
+    --sel: rgba(120, 140, 170, 0.22);
+    --accent: #2f6bd8;
+    --font: ui-monospace, "SF Mono", "JetBrains Mono", "IBM Plex Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #161614;
+      --fg: #dcdad2;
+      --dim: rgba(220, 218, 210, 0.15);
+      --faint: rgba(220, 218, 210, 0.36);
+      --sel: rgba(140, 160, 200, 0.25);
+      --accent: #7aa7ff;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--fg); }
+  body {
+    font-family: var(--font);
+    font-size: 17px;
+    line-height: 1.8;
+    -webkit-font-smoothing: antialiased;
+  }
+  body.typing, body.typing * { cursor: none !important; }
+  [hidden] { display: none !important; }
+
+  .page {
+    max-width: 66ch;
+    margin: 0 auto;
+    padding: 22vh 6vw 55vh;
+  }
+  body.focus #wrap { padding-top: 42vh; }
+
+  /* ---------- editor ---------- */
+  #stack { position: relative; }
+  #mirror, #ed {
+    font: inherit;
+    line-height: inherit;
+    white-space: pre-wrap;
+    overflow-wrap: break-word;
+    word-break: normal;
+    tab-size: 4;
+    margin: 0;
+    padding: 0;
+    border: 0;
+  }
+  #mirror { min-height: 1.8em; pointer-events: none; }
+  #mirror .l:empty::before { content: "\200b"; }
+  #mirror .l, #mirror .l span { transition: color 0.35s ease; }
+  body.focus #mirror .dim { color: var(--dim); }
+
+  #ed {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    resize: none;
+    outline: none;
+    background: transparent;
+    color: transparent;
+    caret-color: var(--fg);
+  }
+  #ed::selection { background: var(--sel); color: transparent; }
+
+  /* ---------- rendered markdown ---------- */
+  #preview { padding-top: 16vh; padding-bottom: 30vh; overflow-wrap: break-word; }
+  #preview h1, #preview h2, #preview h3, #preview h4, #preview h5, #preview h6 {
+    line-height: 1.35; margin: 2em 0 0.6em; font-weight: 700;
+  }
+  #preview h1 { font-size: 1.6em; }
+  #preview h2 { font-size: 1.3em; }
+  #preview h3 { font-size: 1.1em; }
+  #preview h4, #preview h5, #preview h6 { font-size: 1em; }
+  #preview > :first-child { margin-top: 0; }
+  #preview p { margin: 0 0 1.2em; }
+  #preview a { color: var(--accent); text-decoration: none; border-bottom: 1px solid currentColor; }
+  #preview blockquote { margin: 0 0 1.2em; padding-left: 1.4em; border-left: 2px solid var(--dim); color: var(--faint); }
+  #preview ul, #preview ol { margin: 0 0 1.2em; padding-left: 2ch; }
+  #preview code { background: var(--sel); padding: 0.1em 0.3em; border-radius: 3px; font-size: 0.92em; }
+  #preview pre { background: var(--sel); padding: 1em 1.2em; border-radius: 4px; overflow-x: auto; margin: 0 0 1.2em; }
+  #preview pre code { background: none; padding: 0; }
+  #preview hr { border: 0; text-align: center; margin: 2.4em 0; }
+  #preview hr::after { content: "* * *"; color: var(--faint); }
+  #preview img { max-width: 100%; }
+
+  /* ---------- library ---------- */
+  #lib { padding-top: 16vh; }
+  #q {
+    width: 100%;
+    font: inherit;
+    color: var(--fg);
+    background: transparent;
+    border: 0;
+    outline: none;
+    padding: 0;
+    margin: 0 0 2.2em;
+    caret-color: var(--fg);
+  }
+  #q::placeholder { color: var(--dim); }
+  #list { list-style: none; margin: 0; padding: 0; }
+  #list li {
+    display: flex;
+    gap: 3ch;
+    justify-content: space-between;
+    color: var(--faint);
+    cursor: default;
+    transition: color 0.15s ease;
+  }
+  #list li:hover { color: var(--fg); }
+  #list li.sel { color: var(--fg); }
+  #list .t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #list .d { flex: none; font-size: 0.85em; color: var(--dim); }
+  #list li.sel .d { color: var(--faint); }
+  #list li.empty { color: var(--dim); }
+
+  #toast {
+    position: fixed;
+    left: 50%;
+    bottom: 5vh;
+    transform: translateX(-50%);
+    font-size: 13px;
+    color: var(--faint);
+    opacity: 0;
+    transition: opacity 0.6s ease;
+    pointer-events: none;
+    white-space: pre;
+  }
+  #toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+  <main id="wrap" class="page">
+    <div id="stack">
+      <div id="mirror" aria-hidden="true"></div>
+      <textarea id="ed" spellcheck="false" autocomplete="off" aria-label="Writing area"></textarea>
+    </div>
+  </main>
+  <article id="preview" class="page" hidden></article>
+  <section id="lib" class="page" hidden>
+    <input id="q" type="text" placeholder="find or start…" spellcheck="false" autocomplete="off" aria-label="Find a document">
+    <ul id="list"></ul>
+  </section>
+  <div id="toast"></div>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const ed = $('ed'), mirror = $('mirror'), wrap = $('wrap'), preview = $('preview');
+  const lib = $('lib'), q = $('q'), listEl = $('list'), toastEl = $('toast');
+  const isMac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
+  const MOD = isMac ? '⌘' : 'Ctrl+';
+  const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+  // ================= storage =================
+  // In the Mac app, documents are .md files in ~/Documents/Paper (via the native bridge).
+  // Opened in a plain browser, it falls back to localStorage.
+  const native = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.paper;
+  const ls = {
+    get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+    set(k, v) { try { localStorage.setItem(k, v); } catch {} },
+    del(k) { try { localStorage.removeItem(k); } catch {} },
+  };
+
+  function titleOf(t) {
+    for (const line of t.split('\n', 200)) {
+      const s = line.replace(/^\s*(#{1,6}\s+|>\s*|[-*+]\s+)?/, '').replace(/[*_`~]/g, '').trim();
+      if (s) return s.slice(0, 80);
+    }
+    return 'untitled';
+  }
+
+  const localApi = {
+    idx() { try { return JSON.parse(ls.get('paper.index') || '{}'); } catch { return {}; } },
+    async list() { return Object.entries(this.idx()).map(([id, m]) => ({ id, title: m.title, modified: m.modified })); },
+    async read(id) { return ls.get('paper.doc.' + id); },
+    async write(id, text) {
+      const i = this.idx(); i[id] = { title: titleOf(text), modified: Date.now() };
+      ls.set('paper.doc.' + id, text); ls.set('paper.index', JSON.stringify(i)); return true;
+    },
+    async trash(id) { const i = this.idx(); delete i[id]; ls.set('paper.index', JSON.stringify(i)); ls.del('paper.doc.' + id); return true; },
+    async getPref(k) { return ls.get('paper.pref.' + k); },
+    async setPref(k, v) { ls.set('paper.pref.' + k, String(v)); return true; },
+  };
+  const api = native ? {
+    list: () => native.postMessage({ op: 'list' }),
+    read: id => native.postMessage({ op: 'read', id }),
+    write: (id, text) => native.postMessage({ op: 'write', id, text }),
+    trash: id => native.postMessage({ op: 'trash', id }),
+    getPref: k => native.postMessage({ op: 'getPref', key: k }),
+    setPref: (k, v) => native.postMessage({ op: 'setPref', key: k, value: String(v) }),
+  } : localApi;
+
+  // ================= toast =================
+  let toastTimer = 0;
+  function toast(msg, ms = 1600) {
+    toastEl.textContent = msg;
+    toastEl.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => toastEl.classList.remove('show'), ms);
+  }
+
+  // ================= sentence detection =================
+  const TERM = /[.!?…]/, CLOSE = /["'”’)\]»*_]/, WS = /\s/;
+  function sentenceRange(t, pos) {
+    let s = pos;
+    while (s > 0) {
+      const c = t[s - 1];
+      if (WS.test(c)) {
+        let k = s - 2;
+        while (k >= 0 && CLOSE.test(t[k])) k--;
+        if (k >= 0 && TERM.test(t[k])) break;
+      }
+      s--;
+    }
+    // caret sits between a terminator and its closing quote/bracket
+    let b = pos - 1;
+    while (b >= s && CLOSE.test(t[b])) b--;
+    if (b >= s && TERM.test(t[b])) {
+      let k = pos;
+      while (k < t.length && CLOSE.test(t[k])) k++;
+      if (k >= t.length || WS.test(t[k])) return [s, k];
+    }
+    let e = pos;
+    while (e < t.length) {
+      if (TERM.test(t[e])) {
+        let k = e;
+        while (k < t.length && TERM.test(t[k])) k++;
+        while (k < t.length && CLOSE.test(t[k])) k++;
+        e = k;
+        if (k >= t.length || WS.test(t[k])) break;
+        continue;
+      }
+      e++;
+    }
+    return [s, e];
+  }
+
+  // ================= editor rendering (incremental, per line) =================
+  // The textarea is transparent; a mirror underneath draws the text, one div per line.
+  // On each edit only the lines that changed are rebuilt, so long documents stay fast.
+  let lines = [], els = [], curEl = null, dirty = true;
+  let focusMode = false;
+
+  function resetMirror() { mirror.textContent = ''; lines = []; els = []; curEl = null; dirty = true; }
+
+  function mkLine(text) {
+    const d = document.createElement('div');
+    d.className = 'l dim';
+    d.textContent = text;
+    d._t = text;
+    return d;
+  }
+
+  function syncLines() {
+    const nl = ed.value.split('\n'), ol = lines;
+    const max = Math.min(nl.length, ol.length);
+    let a = 0; while (a < max && nl[a] === ol[a]) a++;
+    let b = 0; while (b < max - a && nl[nl.length - 1 - b] === ol[ol.length - 1 - b]) b++;
+    const removed = ol.length - a - b;
+    const ref = els[a + removed] || null;
+    for (let i = a; i < a + removed; i++) els[i].remove();
+    const frag = document.createDocumentFragment(), added = [];
+    for (let i = a; i < nl.length - b; i++) { const d = mkLine(nl[i]); added.push(d); frag.appendChild(d); }
+    mirror.insertBefore(frag, ref);
+    const tail = els.slice(a + removed);
+    els.length = a;
+    for (const d of added) els.push(d);
+    for (const d of tail) els.push(d);
+    lines = nl;
+  }
+
+  function render(scroll = true) {
+    if (dirty) { syncLines(); dirty = false; }
+    const t = ed.value;
+    const pos = ed.selectionDirection === 'backward' ? ed.selectionStart : ed.selectionEnd;
+    let li = 0, lineStart = 0;
+    for (let i = t.indexOf('\n'); i !== -1 && i < pos; i = t.indexOf('\n', i + 1)) { li++; lineStart = i + 1; }
+    const el = els[li], line = lines[li], col = pos - lineStart;
+    if (!el) return;
+    if (curEl && curEl !== el && curEl.isConnected) { curEl.textContent = curEl._t; curEl.classList.add('dim'); }
+    const [s, e] = sentenceRange(line, col);
+    el.classList.remove('dim');
+    el.innerHTML =
+      '<span class="dim">' + esc(line.slice(0, s)) + '</span>' +
+      '<span class="cur">' + esc(line.slice(s, col)) + '<span id="caret"></span>' + esc(line.slice(col, e)) + '</span>' +
+      '<span class="dim">' + esc(line.slice(e)) + '</span>​';
+    curEl = el;
+    ed.scrollTop = 0;
+    if (scroll) keepCaretInView();
+  }
+
+  function keepCaretInView(smooth = true) {
+    const caret = $('caret');
+    if (!caret || document.activeElement !== ed) return;
+    const r = caret.getBoundingClientRect(), vh = window.innerHeight;
+    if (focusMode) {
+      const delta = r.top - vh * 0.42;
+      if (Math.abs(delta) > 4) window.scrollBy({ top: delta, behavior: smooth ? 'smooth' : 'auto' });
+    } else if (r.bottom > vh - 96) {
+      window.scrollBy({ top: r.bottom - vh + 96 });
+    } else if (r.top < 48) {
+      window.scrollBy({ top: r.top - 48 });
+    }
+  }
+
+  let raf = 0;
+  const schedule = () => { if (!raf) raf = requestAnimationFrame(() => { raf = 0; render(); }); };
+
+  // ================= documents =================
+  let curId = null, savedText = '', saveTimer = 0, writing = Promise.resolve();
+
+  function newId() {
+    const d = new Date(), p = n => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
+  }
+
+  function scheduleSave() { clearTimeout(saveTimer); saveTimer = setTimeout(flush, 500); }
+
+  function flush() {
+    clearTimeout(saveTimer);
+    const id = curId, text = ed.value;
+    if (!id || text === savedText) return writing;
+    savedText = text;
+    writing = writing.then(() => api.write(id, text)).catch(() => toast('could not save'));
+    return writing;
+  }
+  window.paperFlush = flush;
+
+  async function leaveDoc() {
+    if (!curId) return;
+    await flush();
+    if (!ed.value.trim()) { try { await api.trash(curId); } catch {} }
+  }
+
+  async function openDoc(id, text) {
+    await leaveDoc();
+    if (text == null) text = await api.read(id);
+    if (text == null) text = '';
+    curId = id; savedText = text;
+    ed.value = text;
+    resetMirror();
+    showEditor();
+    ed.setSelectionRange(text.length, text.length);
+    render(false);
+    keepCaretInView(false);
+    api.setPref('last', id);
+  }
+
+  const newDoc = () => openDoc(newId(), '');
+
+  // ================= views =================
+  let view = 'edit', editScroll = 0;
+
+  function showEditor() {
+    view = 'edit';
+    lib.hidden = true; preview.hidden = true; wrap.hidden = false;
+    ed.focus({ preventScroll: true });
+  }
+
+  function togglePreview() {
+    if (view === 'preview') { showEditor(); window.scrollTo(0, editScroll); render(); return; }
+    if (view !== 'edit') return;
+    editScroll = window.scrollY;
+    preview.innerHTML = markdown(ed.value);
+    view = 'preview';
+    wrap.hidden = true; preview.hidden = false;
+    ed.blur();
+    window.scrollTo(0, 0);
+  }
+
+  function setFocus(on, announce) {
+    focusMode = on;
+    document.body.classList.toggle('focus', on);
+    if (announce) { toast(on ? 'focus' : 'focus off', 900); api.setPref('focus', on ? '1' : '0'); }
+    if (view === 'edit') render();
+  }
+
+  // ---------- library ----------
+  let all = [], shown = [], sel = 0, armedDelete = null;
+
+  function fmtDate(ms) {
+    const d = new Date(ms), now = new Date(), p = n => String(n).padStart(2, '0');
+    if (d.toDateString() === now.toDateString()) return `${p(d.getHours())}:${p(d.getMinutes())}`;
+    const mon = d.toLocaleString('en', { month: 'short' }).toLowerCase();
+    if (d.getFullYear() === now.getFullYear()) return `${mon} ${d.getDate()}`;
+    return `${mon} ${d.getDate()} ${d.getFullYear()}`;
+  }
+
+  async function openLib() {
+    if (view === 'edit') editScroll = window.scrollY;
+    await flush();
+    let docs = [];
+    try { docs = (await api.list()) || []; } catch {}
+    all = docs.sort((x, y) => y.modified - x.modified);
+    view = 'lib';
+    wrap.hidden = true; preview.hidden = true; lib.hidden = false;
+    q.value = '';
+    sel = Math.max(0, all.findIndex(d => d.id === curId));
+    filterLib(false);
+    window.scrollTo(0, 0);
+    q.focus();
+  }
+
+  function closeLib() {
+    if (!curId) { all.length ? openDoc(all[0].id) : newDoc(); return; }
+    showEditor(); window.scrollTo(0, editScroll); render();
+  }
+
+  function filterLib(resetSel = true) {
+    const s = q.value.trim().toLowerCase();
+    shown = s ? all.filter(d => d.title.toLowerCase().includes(s)) : all;
+    if (resetSel) sel = 0;
+    sel = Math.min(sel, Math.max(0, shown.length - 1));
+    drawLib();
+  }
+
+  function drawLib() {
+    armedDelete = null;
+    if (!shown.length) {
+      const msg = q.value.trim() ? 'enter to start “' + esc(q.value.trim()) + '”' : `nothing here yet · ${MOD}N to begin`;
+      listEl.innerHTML = `<li class="empty">${msg}</li>`;
+      return;
+    }
+    listEl.innerHTML = shown.map((d, i) =>
+      `<li data-i="${i}"${i === sel ? ' class="sel"' : ''}><span class="t">${esc(d.title)}</span><span class="d">${fmtDate(d.modified)}</span></li>`
+    ).join('');
+    const s = listEl.children[sel];
+    if (s) s.scrollIntoView({ block: 'nearest' });
+  }
+
+  function moveSel(n) {
+    if (!shown.length) return;
+    const prev = listEl.children[sel];
+    sel = (sel + n + shown.length) % shown.length;
+    if (prev) prev.classList.remove('sel');
+    const next = listEl.children[sel];
+    next.classList.add('sel');
+    next.scrollIntoView({ block: 'nearest' });
+    armedDelete = null;
+  }
+
+  async function deleteSelected() {
+    const d = shown[sel];
+    if (!d) return;
+    if (armedDelete !== d.id) { armedDelete = d.id; toast(`${MOD}⌫ again to delete “${d.title}”`, 2200); return; }
+    armedDelete = null;
+    try { await api.trash(d.id); } catch {}
+    if (d.id === curId) { curId = null; savedText = ''; ed.value = ''; resetMirror(); }
+    all = all.filter(x => x.id !== d.id);
+    filterLib(false);
+    toast(native ? 'moved to trash' : 'deleted');
+  }
+
+  q.addEventListener('input', () => filterLib());
+  q.addEventListener('keydown', e => {
+    const mod = isMac ? e.metaKey : e.ctrlKey;
+    if (e.key === 'ArrowDown' || (e.ctrlKey && e.key === 'n' && isMac)) { e.preventDefault(); moveSel(1); }
+    else if (e.key === 'ArrowUp' || (e.ctrlKey && e.key === 'p' && isMac)) { e.preventDefault(); moveSel(-1); }
+    else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (shown[sel]) { const id = shown[sel].id; id === curId ? closeLib() : openDoc(id); }
+      else if (q.value.trim()) openDoc(newId(), '# ' + q.value.trim() + '\n\n');
+      else newDoc();
+    }
+    else if (e.key === 'Escape') { e.preventDefault(); closeLib(); }
+    else if (mod && e.key === 'Backspace') { e.preventDefault(); deleteSelected(); }
+  });
+  listEl.addEventListener('click', e => {
+    const li = e.target.closest('li[data-i]');
+    if (!li) return;
+    const d = shown[+li.dataset.i];
+    d.id === curId ? closeLib() : openDoc(d.id);
+  });
+
+  // ================= markdown =================
+  const safeUrl = u => (/^\s*(javascript|vbscript|data):/i.test(u) && !/^data:image\//i.test(u) ? '#' : u).replace(/"/g, '&quot;');
+
+  function inline(src) {
+    const codes = [];
+    let s = esc(src).replace(/`([^`]+)`/g, (_, c) => { codes.push(c); return '\u0000' + (codes.length - 1) + '\u0000'; });
+    s = s
+      .replace(/!\[([^\]]*)\]\(([^)\s]+)\)/g, (_, a, u) => `<img alt="${a.replace(/"/g, '&quot;')}" src="${safeUrl(u)}">`)
+      .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_, txt, u) => `<a href="${safeUrl(u)}">${txt}</a>`)
+      .replace(/(\*\*|__)(?=\S)([\s\S]+?)(?<=\S)\1/g, '<strong>$2</strong>')
+      .replace(/\*(?=\S)([\s\S]+?)(?<=\S)\*/g, '<em>$1</em>')
+      .replace(/(^|[^\w])_(?=\S)([\s\S]+?)(?<=\S)_(?!\w)/g, '$1<em>$2</em>')
+      .replace(/~~(?=\S)([\s\S]+?)(?<=\S)~~/g, '<del>$1</del>')
+      .replace(/ {2,}\n/g, '<br>\n');
+    return s.replace(/\u0000(\d+)\u0000/g, (_, i) => '<code>' + codes[i] + '</code>');
+  }
+
+  const RE = {
+    fence: /^\s*(```|~~~)/,
+    heading: /^(#{1,6})\s+(.*?)\s*#*\s*$/,
+    hr: /^\s*([-*_])(\s*\1){2,}\s*$/,
+    quote: /^\s*>\s?/,
+    ul: /^\s*[-*+]\s+/,
+    ol: /^\s*\d+[.)]\s+/,
+  };
+  const startsBlock = l => RE.fence.test(l) || RE.heading.test(l) || RE.hr.test(l) || RE.quote.test(l) || RE.ul.test(l) || RE.ol.test(l);
+
+  function markdown(src) {
+    const L = src.replace(/\r\n?/g, '\n').split('\n');
+    let out = '', i = 0, m;
+    while (i < L.length) {
+      const l = L[i];
+      if (!l.trim()) { i++; continue; }
+      if ((m = l.match(RE.fence))) {
+        const buf = []; i++;
+        while (i < L.length && !L[i].trim().startsWith(m[1])) buf.push(L[i++]);
+        i++;
+        out += '<pre><code>' + esc(buf.join('\n')) + '</code></pre>';
+      } else if ((m = l.match(RE.heading))) {
+        out += `<h${m[1].length}>${inline(m[2])}</h${m[1].length}>`; i++;
+      } else if (RE.hr.test(l)) {
+        out += '<hr>'; i++;
+      } else if (RE.quote.test(l)) {
+        const buf = [];
+        while (i < L.length && L[i].trim() && RE.quote.test(L[i])) buf.push(L[i++].replace(RE.quote, ''));
+        out += '<blockquote>' + markdown(buf.join('\n')) + '</blockquote>';
+      } else if (RE.ul.test(l) || RE.ol.test(l)) {
+        const re = RE.ul.test(l) ? RE.ul : RE.ol, tag = re === RE.ul ? 'ul' : 'ol', items = [];
+        while (i < L.length && L[i].trim()) {
+          if (re.test(L[i])) items.push(L[i].replace(re, ''));
+          else if (startsBlock(L[i])) break;
+          else items[items.length - 1] += '\n' + L[i].trim();
+          i++;
+        }
+        out += `<${tag}>` + items.map(it => {
+          const task = it.match(/^\[([ xX])\]\s+/);
+          return '<li>' + (task ? (task[1] === ' ' ? '☐ ' : '☑ ') + inline(it.slice(task[0].length)) : inline(it)) + '</li>';
+        }).join('') + `</${tag}>`;
+      } else {
+        const buf = [];
+        while (i < L.length && L[i].trim() && !startsBlock(L[i])) buf.push(L[i++]);
+        out += '<p>' + inline(buf.join('\n')) + '</p>';
+      }
+    }
+    return out;
+  }
+
+  // ================= input & shortcuts =================
+  function insertText(str) {
+    if (!document.execCommand || !document.execCommand('insertText', false, str)) {
+      ed.setRangeText(str, ed.selectionStart, ed.selectionEnd, 'end');
+      ed.dispatchEvent(new Event('input'));
+    }
+  }
+
+  const HELP = [
+    `${MOD}O   documents`,
+    `${MOD}N   new`,
+    `${MOD}.   focus mode`,
+    `${MOD}E   render markdown`,
+    `${MOD}S   save now`,
+  ].join('\n');
+
+  document.addEventListener('keydown', e => {
+    const mod = isMac ? e.metaKey : e.ctrlKey;
+    if (mod && !e.altKey && !e.shiftKey) {
+      const k = e.key.toLowerCase();
+      if (k === 'o') { e.preventDefault(); view === 'lib' ? closeLib() : openLib(); return; }
+      if (k === 'n') { e.preventDefault(); newDoc(); return; }
+      if (k === '.') { e.preventDefault(); setFocus(!focusMode, true); return; }
+      if (k === 'e') { e.preventDefault(); togglePreview(); return; }
+      if (k === 's') { e.preventDefault(); flush().then(() => toast('saved', 900)); return; }
+      if (k === '/') { e.preventDefault(); toast(HELP, 3500); return; }
+    }
+    if (view === 'preview' && (e.key === 'Escape' || (!mod && e.key.length === 1))) {
+      if (e.key === 'Escape') e.preventDefault();
+      togglePreview();
+    }
+  });
+
+  ed.addEventListener('keydown', e => {
+    if (e.key === 'Tab' && !e.metaKey && !e.ctrlKey && !e.altKey) { e.preventDefault(); insertText('    '); }
+    if (!e.metaKey && !e.ctrlKey) document.body.classList.add('typing');
+  });
+  ed.addEventListener('input', () => { dirty = true; render(); scheduleSave(); });
+  ed.addEventListener('scroll', () => { ed.scrollTop = 0; ed.scrollLeft = 0; });
+  document.addEventListener('selectionchange', () => { if (document.activeElement === ed) schedule(); });
+  document.addEventListener('mousemove', () => document.body.classList.remove('typing'));
+  window.addEventListener('resize', () => { if (view === 'edit') render(false); });
+  window.addEventListener('beforeunload', () => { flush(); });
+  window.addEventListener('blur', () => { flush(); });
+
+  // clicking the empty margins returns to the text
+  document.addEventListener('mousedown', e => {
+    if (view === 'edit' && e.target !== ed) { e.preventDefault(); ed.focus({ preventScroll: true }); }
+  });
+
+  // ================= boot =================
+  (async () => {
+    try { setFocus((await api.getPref('focus')) === '1', false); } catch {}
+    let last = null;
+    try { last = await api.getPref('last'); } catch {}
+    let text = null;
+    if (last) { try { text = await api.read(last); } catch {} }
+    if (text != null) { await openDoc(last, text); return; }
+    let docs = [];
+    try { docs = (await api.list()) || []; } catch {}
+    docs.sort((x, y) => y.modified - x.modified);
+    if (docs.length) await openDoc(docs[0].id);
+    else { await newDoc(); setTimeout(() => toast(`${MOD}/ for shortcuts`, 2600), 600); }
+  })();
+})();
+</script>
+</body>
+</html>
