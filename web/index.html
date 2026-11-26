@@ -693,11 +693,52 @@
     }
   }
 
+  // ================= stats =================
+  // Words use Intl.Segmenter where available, so CJK text counts by word
+  // rather than as one long run; punctuation and Markdown symbols don't count.
+  const segmenter = typeof Intl !== 'undefined' && Intl.Segmenter ? new Intl.Segmenter(undefined, { granularity: 'word' }) : null;
+  function countWords(t) {
+    if (!segmenter) return (t.match(/[\p{L}\p{N}]+(?:['’][\p{L}\p{N}]+)*/gu) || []).length;
+    let n = 0;
+    for (const seg of segmenter.segment(t)) if (seg.isWordLike) n++;
+    return n;
+  }
+  function countSentences(t) {
+    let n = 0;
+    for (const line of t.split('\n')) {
+      const l = line.trim();
+      if (!l || /^#{1,6}\s/.test(l) || /^(```|---|\*\*\*)/.test(l)) continue;   // skip headings, fences, rules
+      n += (l.match(/[.!?…]+["'”’)\]»*_]*(?=\s|$)/g) || []).length;
+      if (!/[.!?…]["'”’)\]»*_]*$/.test(l)) n++;   // trailing sentence without a full stop
+    }
+    return n;
+  }
+  const fmt = n => n.toLocaleString();
+  const pl = (n, w) => `${fmt(n)} ${w}${n === 1 ? '' : 's'}`;
+  function showStats() {
+    const t = ed.value, words = countWords(t);
+    const out = [];
+    if (view === 'edit' && ed.selectionStart !== ed.selectionEnd) {
+      out.push(`${fmt(countWords(t.slice(ed.selectionStart, ed.selectionEnd)))} of ${pl(words, 'word')} selected`);
+    } else {
+      out.push(pl(words, 'word'));
+    }
+    const paras = t.split('\n').filter(l => l.trim() && !/^\s*#{1,6}\s/.test(l)).length;
+    const mins = words / 238;
+    out.push(
+      pl(t.length, 'character'),
+      `${pl(countSentences(t), 'sentence')} · ${pl(paras, 'paragraph')}`,
+    );
+    if (words) out.push(mins < 1 ? 'under a minute to read' : `${Math.round(mins)} min read`);
+    toast(out.join('\n'), 4000);
+  }
+
   const HELP = [
     `${MOD}O   documents`,
     `${MOD}N   new`,
     `${MOD}.   focus mode`,
     `${MOD}E   render markdown`,
+    `${MOD}I   word count and stats`,
     `${MOD}S   save now`,
   ].join('\n');
 
@@ -711,6 +752,7 @@
       if (k === 'e') { e.preventDefault(); togglePreview(); return; }
       if (k === 's') { e.preventDefault(); flush().then(() => toast('saved', 900)); return; }
       if (k === '/') { e.preventDefault(); toast(HELP, 3500); return; }
+      if (k === 'i' && view !== 'lib') { e.preventDefault(); showStats(); return; }
     }
     if (view === 'preview' && (e.key === 'Escape' || (!mod && e.key.length === 1))) {
       if (e.key === 'Escape') e.preventDefault();

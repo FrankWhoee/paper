@@ -52,6 +52,7 @@ Why this shape: a thin Swift wrapper over the system WebKit gives a small (few M
 | ⌘N | new document |
 | ⌘. | toggle focus mode (persisted) |
 | ⌘E | toggle rendered Markdown view (Esc, or typing any character, returns to editing) |
+| ⌘I | word count and stats toast (words, characters, sentences, paragraphs, reading time; with a selection, its word count) |
 | ⌘S | flush the save now |
 | ⌘/ | shortcut hint toast |
 | ⌘⌫ | in the list: delete the selected document (press twice to confirm) |
